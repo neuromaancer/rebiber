@@ -17,7 +17,7 @@ def construct_bib_db(bib_list_file, start_dir=""):
         with open(start_dir+filename.strip()) as f:
             db = json.load(f)
             print("Loaded:", f.name, "Size:", len(db))
-        bib_db.update(db)
+        bib_db |= db
     return bib_db
 
 def has_integer(line):
@@ -29,10 +29,12 @@ def is_contain_var(line):
     line_clean = line.lower().replace(" ","")
     if "=" in line_clean:
         # We ask if there is {, ', ", or if there is an integer in the line (since integer input is allowed)
-        if ('{' in line_clean or '"' in line_clean or "'" in line_clean) or has_integer(line):
-            return False
-        else:
-            return True
+        return (
+            '{' not in line_clean
+            and '"' not in line_clean
+            and "'" not in line_clean
+            and not has_integer(line)
+        )
     return False
 
 def post_processing(output_bib_entries, removed_value_names, abbr_dict, sort):
@@ -100,23 +102,24 @@ def normalize_bib(bib_db, all_bib_entries, output_bib_path, deduplicate=True, re
                     bibkey = line[line.find('{')+1:-1]
                     if not bibkey:
                         bibkey = bib_db[title][line_idx+1].strip()[:-1]
-                    line = line.replace(bibkey, original_bibkey+",")
+                    line = line.replace(bibkey, f"{original_bibkey},")
                     found_bibitem = bib_db[title].copy()
                     found_bibitem[line_idx] = line
                     break
             if found_bibitem:
-                log_str = "Converted. ID: %s ; Title: %s" % (original_bibkey, original_title)
+                log_str = f"Converted. ID: {original_bibkey} ; Title: {original_title}"
                 num_converted += 1
                 print(log_str)
                 output_bib_entries.append(found_bibitem)
         else:
             bib_dict = bib_entry_parsed.entries[0]
-            bib_dict["arxiv_id"] = set()
-            for match in re.finditer(
-                r"(arxiv:|arxiv.org\/abs\/|arxiv.org\/pdf\/)([0-9]{4}).([0-9]{5})", bib_entry_str.lower()
-            ):
-                bib_dict["arxiv_id"].add(f"{match.group(2)}.{match.group(3)}")
-                
+            bib_dict["arxiv_id"] = {
+                f"{match.group(2)}.{match.group(3)}"
+                for match in re.finditer(
+                    r"(arxiv:|arxiv.org\/abs\/|arxiv.org\/pdf\/)([0-9]{4}).([0-9]{5})",
+                    bib_entry_str.lower(),
+                )
+            }
             if len(bib_dict["arxiv_id"]) == 1:
                 bib_dict["arxiv_id"] = bib_dict["arxiv_id"].pop()
                 bib_dict["arxiv_year"] = "20" + bib_dict["arxiv_id"].split(".")[0][:2]
@@ -134,14 +137,11 @@ def normalize_bib(bib_db, all_bib_entries, output_bib_path, deduplicate=True, re
                     )
                 ]
 
-                log_str = "Converted arXiv entry. ID: %s ; Title: %s" % (
-                    original_bibkey,
-                    original_title,
-                )
+                log_str = f"Converted arXiv entry. ID: {original_bibkey} ; Title: {original_title}"
                 num_converted += 1
                 print(log_str)
 
-                
+
             output_bib_entries.append(bib_entry)
     print("Num of converted items:", num_converted)
     # post-formatting
@@ -171,7 +171,7 @@ def update(filepath):
     print("Done Updating.")
 
 def main():
-    filepath = os.path.dirname(os.path.abspath(__file__)) + '/'
+    filepath = f'{os.path.dirname(os.path.abspath(__file__))}/'
     parser = argparse.ArgumentParser()
     parser.add_argument("-u", "--update", action='store_true', help="Update the data of bib and abbr.")
     parser.add_argument("-v", "--version", action='store_true', help="Print the version of Rebiber.")
@@ -179,10 +179,20 @@ def main():
                         type=str, help="The input bib file")
     parser.add_argument("-o", "--output_bib", default="same",
                         type=str, help="The output bib file")
-    parser.add_argument("-l", "--bib_list", default=filepath+"bib_list.txt",
-                        type=str, help="The list of candidate bib data.")
-    parser.add_argument("-a", "--abbr_tsv", default=filepath+"abbr.tsv",
-                        type=str, help="The list of conference abbreviation data.")
+    parser.add_argument(
+        "-l",
+        "--bib_list",
+        default=f"{filepath}bib_list.txt",
+        type=str,
+        help="The list of candidate bib data.",
+    )
+    parser.add_argument(
+        "-a",
+        "--abbr_tsv",
+        default=f"{filepath}abbr.tsv",
+        type=str,
+        help="The list of conference abbreviation data.",
+    )
     parser.add_argument("-d", "--deduplicate", default=True,
                         type=bool, help="True to remove entries with duplicate keys.")
     parser.add_argument("-s", "--shorten", default=False,
@@ -207,10 +217,7 @@ def main():
     all_bib_entries = load_bib_file(args.input_bib)
     output_path = args.input_bib if args.output_bib == "same" else args.output_bib
     removed_value_names = [s.strip() for s in args.remove.split(",")]
-    if args.shorten:
-        abbr_dict = load_abbr_tsv(args.abbr_tsv)
-    else:
-        abbr_dict = []
+    abbr_dict = load_abbr_tsv(args.abbr_tsv) if args.shorten else []
     normalize_bib(bib_db, all_bib_entries, output_path, args.deduplicate, removed_value_names, abbr_dict, args.sort)
 
 
